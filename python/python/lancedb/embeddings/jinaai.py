@@ -7,6 +7,7 @@ import io
 import base64
 from functools import cached_property
 from urllib.parse import urlparse
+from urllib.request import url2pathname
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Union, Optional, Any, Dict
 
@@ -87,18 +88,25 @@ class JinaEmbeddings(EmbeddingFunction):
         if isinstance(image, bytes):
             image_dict = {"image": base64.b64encode(image).decode("utf-8")}
         elif isinstance(image, (str, Path)):
-            parsed = urlparse(str(image))
             PIL_Image = attempt_import_or_raise("PIL.Image", "pillow")
-            if parsed.scheme == "file":
-                pil_image = PIL_Image.open(parsed.path)
-            elif parsed.scheme == "" or (os.name == "nt" and len(parsed.scheme) == 1):
-                # A Windows drive letter parses as a one-character scheme
-                # ("C:\\img.png" -> scheme="c"), so treat it as a local path.
-                pil_image = PIL_Image.open(image if os.name == "nt" else parsed.path)
-            elif parsed.scheme.startswith("http"):
-                pil_image = PIL_Image.open(io.BytesIO(url_retrieve(image)))
+            if isinstance(image, Path):
+                pil_image = PIL_Image.open(image)
             else:
-                raise NotImplementedError("Only local and http(s) urls are supported")
+                parsed = urlparse(image)
+                if parsed.scheme == "file":
+                    pil_image = PIL_Image.open(url2pathname(parsed.path))
+                elif parsed.scheme == "" or (
+                    os.name == "nt" and len(parsed.scheme) == 1
+                ):
+                    # A Windows drive letter parses as a one-character scheme
+                    # ("C:\\img.png" -> scheme="c"), so treat it as a local path.
+                    pil_image = PIL_Image.open(image)
+                elif parsed.scheme.startswith("http"):
+                    pil_image = PIL_Image.open(io.BytesIO(url_retrieve(image)))
+                else:
+                    raise NotImplementedError(
+                        "Only local and http(s) urls are supported"
+                    )
             buffered = io.BytesIO()
             pil_image.save(buffered, format="PNG")
             image_bytes = buffered.getvalue()
